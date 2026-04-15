@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高等数学核心架构 - 考研主动回忆系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- 引入 Markdown 解析器 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- 引入 MathJax 用于数学公式渲染 -->
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true
+            },
+            svg: { fontCache: 'global' }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #1a1a1a; }
+        
+        .dot-bg {
+            background-image: radial-gradient(circle, #444 1px, transparent 1px);
+            background-size: 24px 24px;
+            background-position: 0 0;
+            width: 100vw; height: 100vh; position: absolute; z-index: 0;
+        }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+
+        .canvas-node {
+            position: absolute; width: 320px; background-color: #242424;
+            border: 1px solid #3f3f3f; border-radius: 24px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.6); color: #d4d4d4;
+            font-family: Georgia, "Noto Serif SC", serif;
+            display: flex; flex-direction: column; user-select: none;
+            transition: box-shadow 0.3s ease, border-color 0.3s ease;
+        }
+        .canvas-node:hover { border-color: #666; box-shadow: 0 12px 40px rgba(0,0,0,0.8); }
+        
+        .node-header {
+            padding: 14px 18px; font-weight: 600; font-size: 1.15rem;
+            border-bottom: 1px solid #333; border-top-left-radius: 24px; border-top-right-radius: 24px;
+            cursor: grab; display: flex; align-items: center; justify-content: space-between;
+        }
+        .node-header:active { cursor: grabbing; }
+        
+        .header-title-wrapper { display: flex; align-items: center; }
+        .color-indicator { width: 12px; height: 12px; border-radius: 4px; margin-right: 12px; }
+
+        .node-content { padding: 16px 18px; font-size: 0.95rem; line-height: 1.6; }
+        .node-content ul { margin: 0; padding-left: 20px; list-style-type: disc; }
+        .node-content li { margin-bottom: 8px; }
+
+        .detail-btn {
+            background: rgba(255,255,255,0.1); border: none; border-radius: 6px;
+            padding: 4px 10px; color: #fff; font-size: 0.8rem; cursor: pointer;
+            transition: all 0.2s; font-family: -apple-system, sans-serif;
+        }
+        .detail-btn:hover { background: rgba(255,255,255,0.2); transform: scale(1.05); }
+
+        #svg-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 1; }
+        .edge-path { fill: none; stroke-width: 2.5; opacity: 0.6; }
+
+        /* Apple 风格非线性模态框动画 */
+        #modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px);
+            z-index: 100; display: flex; justify-content: center; align-items: center;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.4s ease, backdrop-filter 0.4s ease, -webkit-backdrop-filter 0.4s ease;
+        }
+        #modal-overlay.active {
+            opacity: 1; pointer-events: auto;
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+        }
+
+        #modal-content-wrapper {
+            background: #1e1e1e; border: 1px solid #444; border-radius: 24px;
+            width: 800px; max-width: 90vw; max-height: 85vh;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            display: flex; flex-direction: column;
+            transform: scale(0.85) translateY(30px); opacity: 0;
+            transition: all 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+        }
+        #modal-overlay.active #modal-content-wrapper { transform: scale(1) translateY(0); opacity: 1; }
+
+        #modal-header {
+            padding: 20px 24px; border-bottom: 1px solid #333;
+            display: flex; justify-content: space-between; align-items: center;
+            font-family: Georgia, "Noto Serif SC", serif; font-size: 1.5rem; font-weight: bold; color: #eee;
+        }
+        .close-btn {
+            background: #333; color: #aaa; border: none; width: 32px; height: 32px; border-radius: 16px;
+            cursor: pointer; display: flex; justify-content: center; align-items: center; font-size: 1.2rem;
+            transition: all 0.2s;
+        }
+        .close-btn:hover { background: #555; color: #fff; transform: rotate(90deg); }
+
+        #modal-body {
+            padding: 24px; overflow-y: auto; color: #ccc;
+            font-family: "Noto Serif SC", serif; font-size: 1.05rem; line-height: 1.8;
+        }
+
+        /* 渲染后的 Markdown 样式 */
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 { color: #fff; border-bottom: 1px solid #444; padding-bottom: 0.3em; margin-top: 1.5em; }
+        .markdown-body p { margin-bottom: 1.2em; }
+        .markdown-body blockquote { border-left: 4px solid #4ade80; padding-left: 16px; margin: 0; color: #aaa; background: #2a2a2a; padding: 10px 16px; border-radius: 4px; }
+        .markdown-body code { background: #333; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+        .markdown-body pre { background: #111; padding: 16px; border-radius: 8px; overflow-x: auto; }
+        .markdown-body .MathJax_Display { margin: 1.5em 0 !important; overflow-x: auto; overflow-y: hidden; }
+    </style>
+</head>
+<body>
+
+    <div class="dot-bg" id="bg"></div>
+
+    <!-- 临时禁用：版权与致谢悬浮框（发布前删除外层的 HTML 注释符号即可恢复） -->
+    <!--
+    <div class="fixed top-6 left-6 z-50 bg-[#242424]/80 backdrop-blur-md border border-[#3f3f3f] px-5 py-4 rounded-[24px] shadow-2xl flex flex-col gap-1">
+        <div class="font-bold text-gray-100 tracking-wide text-lg" style="font-family: -apple-system, sans-serif;">
+            VISUALIZATION BY 
+            <a href="https://github.com/tanzhijir-04" target="_blank" class="text-blue-400 hover:text-blue-300 underline decoration-blue-500/40 underline-offset-4 transition-colors pointer-events-auto">tanzhijir-04</a>
+        </div>
+        <div class="text-sm text-gray-400 mt-1">
+            笔记来源于 
+            <a href="https://github.com/petrichor5835" target="_blank" class="text-[#4ade80] hover:text-[#22c55e] underline decoration-[#4ade80]/40 underline-offset-4 transition-colors pointer-events-auto">petrichor5835</a>
+        </div>
+    </div>
+    -->
+
+    <!-- 底部提示框圆角同步修改为 24px -->
+    <div class="fixed bottom-6 right-6 z-50 bg-[#2a2a2a] border border-[#444] text-[#aaa] px-4 py-3 rounded-[24px] shadow-2xl text-sm flex flex-col gap-1 pointer-events-none">
+        <div class="font-bold text-gray-200 mb-1">主动回忆模式</div>
+        <div>🖱️ <b>拖拽空地</b>：平移空间</div>
+        <div>🖱️ <b>滚轮滑动</b>：缩放空间</div>
+        <div>👆 <b>点击【解析】</b>：查看定理详细推演</div>
+    </div>
+
+    <div id="canvas-container" style="position: absolute; top:0; left:0; width: 100%; height: 100%; transform-origin: 0 0;">
+        <svg id="svg-layer">
+            <defs>
+                <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#4ade80" /></marker>
+                <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#60a5fa" /></marker>
+                <marker id="arrow-yellow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#facc15" /></marker>
+                <marker id="arrow-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c084fc" /></marker>
+                <marker id="arrow-pink" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#f472b6" /></marker>
+                <marker id="arrow-orange" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#fb923c" /></marker>
+            </defs>
+        </svg>
+        <div id="nodes-layer" style="position: absolute; top:0; left:0; width: 100%; height: 100%; z-index: 2;"></div>
+    </div>
+
+    <div id="modal-overlay">
+        <div id="modal-content-wrapper">
+            <div id="modal-header">
+                <span id="modal-title">详情解析</span>
+                <button class="close-btn" onclick="closeModal()">✕</button>
+            </div>
+            <div id="modal-body" class="markdown-body"></div>
+        </div>
+    </div>
+
+    <script>
+        const nodesData = [
+            { id: 'n1', title: '一、函数基础', color: '#4ade80', bg: '#4ade8015', x: 100, y: 150, items: ['<b>单调性</b>: 导数正负判定', '<b>奇偶性</b>: 常见奇/偶函数', '<b>无穷远处性态</b>: 积分与函数收敛关系', '<b>⚠️避坑</b>: 开根号绝对值'], 
+              detail: `### 1. 单调性
+函数 $f(x)$ 在区间 $I$ 上可导。
+$$f'(x)>0 \\Rightarrow f(x) 单调递增$$ 
+> 注意这是**充分条件**，也就是说函数单调递增，导数**不一定**严格大于0，比如 $x^3$，单调递增但是在0点处导数等于0，事实上只要在**某些点**处的导数等于0仍然可以保证函数单调递增。
+
+### 2. 无穷远处性态分析
+如果 $\\int_0^{+\\infty} f(x)dx$ 收敛，那么 $\\lim_{x\\to+\\infty} f(x)$ 是否一定为 0？
+**不一定！**
+* **补丁 A：单调性**。若同时满足 $f(x)$ 在 $[0, +\\infty)$ 上**单调**，则 $\\lim_{x\\to+\\infty} f(x) = 0$。
+* **补丁 B：波把引理(Barbalat's Lemma)**。若同时满足 $f'(x)$ 有界，则 $\\lim_{x\\to+\\infty} f(x) = 0$。
+  
+---
+### 💡 考场避坑指南
+* **开根号**：出来一定要带绝对值！例如 $\\sqrt{x^2} = |x|$。结合绝对值的求导法则（若分界点处原函数导数为0则绝对值可导，否则出尖点）。` 
+            },
+            
+            { id: 'n2', title: '二、极限理论', color: '#60a5fa', bg: '#60a5fa15', x: 100, y: 550, items: ['<b>数列极限</b>: Stolz与洛必达', '<b>💡套路</b>: 线性递推数列三大法', '<b>💡套路</b>: n项和量级判定', '<b>⚠️避坑</b>: 极限方向与指数极限'], 
+              detail: `### 1. Stolz 定理 (数列的洛必达法则)
+对于 $\\frac{*}{\\infty}$ 形式，设有数列 $\\{a_n\\}$ 和 $\\{b_n\\}$，满足条件：
+1. 数列 $\\{b_n\\}$ 是**严格单调递增**且**趋向于 $+\\infty$**。
+2. 极限 $\\lim_{n \\to \\infty} \\dfrac{a_{n+1} - a_n}{b_{n+1} - b_n}$ 存在，等于 $L$。
+**结论：** 那么原数列极限也存在且等于 $L$：$\\lim_{n \\to \\infty} \\frac{a_n}{b_n} = L$。
+
+### 2. 洛必达法则的失效
+> 洛必达之后得到极限不存在，**不是原式极限不存在**，而是原式**不满足**洛必达的条件！
+条件要求：洛完之后确定得到的导数必须**连续**，洛完之后的极限**存在**。
+
+---
+### 💡 做题套路：线性递推数列极限
+针对 $x_{n+k} = f(x_{n+k-1}, \\dots, x_n)$
+1. **特征方程法**: 建立 $a_k r^k + a_{k-1} r^{k-1} + \\dots + a_0 = 0$，求解特征根。
+   * 不同实根: $C_1 r_1^n + C_2 r_2^n$
+   * 重根: $(C_1 + C_2 n) r_1^n$
+2. **极限存在法**: 若判断（或假设）数列收敛，令 $\\lim x_n = L$，代入递推关系解 $L$。(**失效点**：如果代入后得到 $L=L$，通常发生在特征根包含 1 时，必须换方法)。
+3. **构造新数列法**: 利用韦达定理 $r_1+r_2=-a, r_1r_2=b$。定义新数列 $d_n = x_{n+1} - r_1 x_n$，证明 $d_n$ 是公比为 $r_2$ 的等比数列。
+
+### 💡 做题套路：n项和数列极限
+* 变化部分是主体**次量级** $\\Rightarrow$ 用**夹逼原理**（放缩对结果无影响）。
+* 变化部分是主体**同量级** $\\Rightarrow$ 用**定积分定义**。
+
+### ⚠️ 考场避坑指南
+* **极限方向**：求趋于无穷极限时，一定要考虑**正负无穷**两个方向！
+* **指数极限**：写成 $e^{\\ln}$ 形式时，最后写答案**一定不要忘记 e**！建议先在答题纸上写上 $e$。` 
+            },
+            
+            { id: 'n3', title: '三、一元微分学', color: '#facc15', bg: '#facc1515', x: 550, y: 150, items: ['<b>中值定理</b>: 柯西与拉格朗日', '<b>极值与拐点</b>', '<b>莱布尼茨公式</b>', '<b>💡套路</b>: 双介值证明与分界点', '<b>💡套路</b>: 高阶导数证明与首次积分法'], 
+              detail: `### 1. 柯西中值定理 (参数方程视角)
+如果函数 $f$ 和 $g$ 在闭区间连续，开区间可导，则：
+$$ \\frac{f'(c)}{g'(c)}=\\frac{f(b)−f(a)}{g(b)−g(a)} $$
+**认知升级**：把 $f$ 和 $x$ 看成 $t$ 的**参数方程**，即可直接得到柯西中值定理。
+
+### 2. 莱布尼茨公式
+$$ (uv)^{(n)} = \\sum_{k=0}^n C_n^k u^{(n-k)}v^{(k)} $$
+
+---
+### 💡 做题套路：复杂中值定理证明
+**1. 双介值问题 (求证存在 $\\xi, \\eta$)**
+* **不要求 $\\xi \\neq \\eta$**：在**同一**区间 $[a, b]$ 上用两次中值定理；也可以先把一个参数当成**常数**，按照单介值构造辅助函数用罗尔定理。
+* **要求 $\\xi \\neq \\eta$**：将区间分为**两个子区间**分别使用中值定理。区间分界点可用**逆推法**（根据结论推断分界点条件）。
+
+**2. 高阶导的形式 (求证 $F[\\xi, f^{(n)}(\\xi)] \\ge 0$)**
+* **方法一：泰勒公式**。用带**拉格朗日余项**的泰勒公式，其中展开中心 $x_0$ 选提供函数值/导数值信息最多的点。
+* **方法二：辅助函数**。构造辅助函数，用**首次积分法**，利用最值在区间内部取到。
+
+**3. 一阶辅助函数构造（首次积分法原理）**
+求解微分方程 $F(x, y, y') = 0$ 的通解 $H(x, y) = C$，设辅助函数 $g(x) = H(x, f(x))$。
+* 欲证 $\\xi f'(\\xi)+nf(\\xi)=0 \\Rightarrow$ 令 $F(x)=x^nf(x)$
+* 欲证 $f'(\\xi)+g(\\xi)f(\\xi)=0 \\Rightarrow$ 令 $F(x)=e^{\\int g(x)d x}f(x)$
+
+### ⚠️ 考场避坑指南
+* **泰勒展开**：直接用泰勒展开时，一定要展干净，不要漏项！不好展时用洛必达或拉格朗日化简。` 
+            },
+
+            { id: 'n4', title: '四、一元积分学', color: '#c084fc', bg: '#c084fc15', x: 550, y: 550, items: ['<b>变上限积分</b>', '<b>特殊函数</b>: Gamma & Beta', '<b>💡套路</b>: DI表格分部积分法', '<b>💡套路</b>: 积分不等式六大证明法'], 
+              detail: `### 1. 变上限积分的连续性与可导性
+设 $F(x) = \\int_{a}^{x} f(t) dt$。如果 $f(x)$ 存在间断点 $x_0$：
+* **可去间断点** $\\Rightarrow$ $F(x)$ **可导**，且 $F'(x_{0}) = \\lim_{x \\to x_{0}} f(x)$。
+* **跳跃间断点** $\\Rightarrow$ $F(x)$ **连续但不可导**，存在左右导数。
+
+### 2. 特殊函数
+* **Gamma 函数**: $\\Gamma(n+1)=\\int_0^\\infty x^ne^{-x}dx=n!$。余元公式: $\\Gamma(x)\\Gamma(1-x)= \\dfrac{\\pi}{\\sin (x\\pi)}$。
+* **Beta 函数**: $B(p, q) = \\int_{0}^{1} x^{p-1} (1-x)^{q-1} dx = \\frac{\\Gamma(p)\\Gamma(q)}{\\Gamma(p+q)}$。
+
+---
+### 💡 做题套路：处理不定积分的一般思路
+基本顺序：**1. 凑微分 $\\rightarrow$ 2. 换元 $\\rightarrow$ 3. 分部积分 (DI列表法) $\\rightarrow$ 4. 区间再现和倒代换**
+
+### 💡 做题套路：积分不等式证明
+1. **定积分不等式性质**
+2. **变量代换**
+3. **积分中值定理**
+4. **变上限积分**：将积分不等式转换为函数不等式，利用导数证明单调性（极常用技巧！）。
+5. **分部积分**：将复杂积分进行代数转换。
+6. **柯西积分不等式**：
+$$ \\left(\\int_a^b f(x)g(x)dx\\right)^2 \\le \\int_a^b f^2(x)dx \\cdot \\int_a^b g^2(x)dx $$
+
+### ⚠️ 考场避坑指南
+* **变上限积分求导**：除了代入上下限，一定要**乘上上下限的导数**。` 
+            },
+            
+            { id: 'n5', title: '五、多元微积分', color: '#f472b6', bg: '#f472b615', x: 1000, y: 150, items: ['<b>三大公式</b>: 格林/高斯/斯托克斯', '<b>💡套路</b>: 驻点零因子化简法', '<b>💡套路</b>: 封闭曲面投影三大法', '<b>⚠️避坑</b>: 雅可比行列式方向修正'], 
+              detail: `### 1. 三大核心公式的认知统一
+1. **格林公式 (平面)**：线积分 $\\leftrightarrow$ 二重积分（旋度）。
+2. **斯托克斯公式 (空间)**：空间线积分 $\\leftrightarrow$ 曲面积分。沿闭曲线的环量转化为穿过任意曲面的旋度。
+3. **高斯公式 (空间)**：曲面积分 $\\leftrightarrow$ 三重积分。穿过闭曲面的通量转化为内部散度之和。
+
+---
+### 💡 做题套路：驻点零因子化简法
+当一阶偏导可因式分解为 $f_x = A \\cdot B$ 和 $f_y = C \\cdot D$ 时。
+若求解出的某驻点满足 $B=0$，则二阶偏导公式可直接**降维**化简，无需计算复杂的 $A_x, A_y$：
+* $f_{xx} = A B_x$
+* $f_{yy} = C_y D + C D_y$
+* $f_{xy} = A B_y$
+将驻点代入化简后的表达式，计算 $\\Delta = AC - B^2$ 判别极值类型。
+
+### 💡 做题套路：曲面投影三大方法
+对于闭合曲面到平面的投影（如 $xOy$ 面）：
+1. **判别式法（代数）**：将曲面方程整理为关于 $z$ 的一元二次方程，投影区域满足判别式 $\\Delta \\ge 0$。
+2. **包络法/偏导法（几何）**：投影边界是轮廓线。令 $\\frac{\\partial F}{\\partial z} = 0$ 计算出法向量的 $z$ 分量为 0（垂直切面），将其代入原方程消去 $z$。
+3. **投影柱面法**（适用于曲线到平面的投影）：过曲线每点作垂直投影面的直线，求出投影柱面方程 $\\Phi(X, Y, Z) = 0$ 后与投影平面联立。
+
+### ⚠️ 考场避坑指南：雅可比行列式方向修正
+在空间曲面积分变换 $\\begin{cases} x = x(u,v,w) \\\\ y = y(u,v,w) \\\\ z = z(u,v,w) \\end{cases}$ 中，计算全空间雅可比行列式 $J_{\\text{space}} = \\det \\begin{pmatrix} x_u & x_v & x_w \\\\ y_u & y_v & y_w \\\\ z_u & z_v & z_w \\end{pmatrix}$：
+* 如果 $J_{\\text{space}} > 0$：变换保向。曲面法向量性质不变（向外依然向外），直接计算。
+* 如果 $J_{\\text{space}} < 0$：变换反向。数学上变换后的法向量变成了向内，**必须在积分前人为乘一个 $(-1)$ 修正方向！**` 
+            },
+
+            { id: 'n6', title: '六、微分方程与不等式', color: '#fb923c', bg: '#fb923c15', x: 1000, y: 550, items: ['<b>朗斯基行列式</b> (Wronskian)', '<b>Cauchy 与 Jensen 不等式</b>', '<b>💡套路</b>: 二阶非齐次方程特解结构设法'], 
+              detail: `### 1. 朗斯基行列式 (Wronskian)
+用于研究一组函数是否线性无关：
+$$ W(f_1, f_2)(x) = \\begin{vmatrix} f_1(x) & f_2(x) \\\\ f_1'(x) & f_2'(x) \\end{vmatrix} $$
+* 若在区间上存在一点使 $W \\neq 0$，则函数线性无关。
+* 在常系数线性微分方程的解析解空间中，其朗斯基行列式要么恒不为零，要么恒为零。
+
+### 2. 核心不等式
+* **Jensen 不等式**：设 $\\varphi$ 是凹函数，$\\varphi\\!\\left(\\sum \\alpha_i x_i\\right) \\le \\sum \\alpha_i\\,\\varphi(x_i)$。
+* **Hermite-Hadamard 不等式**（凹函数的中值切线积分与端点梯形积分）：
+$$ f\\!\\left(\\frac{a+b}{2}\\right) \\le \\frac{1}{b-a}\\int_a^b f(x)\\,dx \\le \\frac{f(a)+f(b)}{2} $$
+
+---
+### 💡 做题套路：二阶常系数非齐次特解设法
+针对 $ay'' + by' + cy = f(x)$，根据右端项设定特解结构：
+
+**情况一：** $f(x) = e^{\\lambda x}P_m(x)$ 型
+特解：$y^* = x^k R_m(x) e^{\\lambda x}$
+* $\\lambda$ **不是** 特征根：$k = 0$
+* $\\lambda$ 是 **单根**：$k = 1$
+* $\\lambda$ 是 **重根**：$k = 2$
+
+**情况二：** $f(x) = e^{\\lambda x} \\left[ P_l(x) \\cos(\\omega x) + Q_n(x) \\sin(\\omega x) \\right]$ 型
+特解：$y^* = x^k e^{\\lambda x} \\left[ R_m^{(1)}(x) \\cos(\\omega x) + R_m^{(2)}(x) \\sin(\\omega x) \\right]$
+* $m = \\max(l, n)$
+* $\\lambda + \\omega i$ **不是** 特征方程的根：$k = 0$
+* $\\lambda + \\omega i$ 是特征方程的 **单根**：$k = 1$` 
+            }
+        ];
+
+        const edgesData = [
+            { source: 'n1', target: 'n2', color: '#4ade80', marker: 'arrow-green' },
+            { source: 'n1', target: 'n3', color: '#facc15', marker: 'arrow-yellow' },
+            { source: 'n2', target: 'n4', color: '#c084fc', marker: 'arrow-purple' },
+            { source: 'n3', target: 'n4', color: '#c084fc', marker: 'arrow-purple' },
+            { source: 'n3', target: 'n5', color: '#f472b6', marker: 'arrow-pink' },
+            { source: 'n4', target: 'n5', color: '#f472b6', marker: 'arrow-pink' },
+            { source: 'n5', target: 'n6', color: '#fb923c', marker: 'arrow-orange' }
+        ];
+
+        const canvasContainer = document.getElementById('canvas-container');
+        const nodesLayer = document.getElementById('nodes-layer');
+        const svgLayer = document.getElementById('svg-layer');
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modalTitle = document.getElementById('modal-title');
+        const modalBody = document.getElementById('modal-body');
+        
+        let scale = 1, translateX = 0, translateY = 0;
+        let isPanning = false, draggedNode = null;
+        const nodeElements = {};
+
+        function renderNodes() {
+            nodesData.forEach(node => {
+                const el = document.createElement('div');
+                el.className = 'canvas-node';
+                el.style.left = node.x + 'px';
+                el.style.top = node.y + 'px';
+                
+                let itemsHtml = node.items.map(item => `<li>${item}</li>`).join('');
+                el.innerHTML = `
+                    <div class="node-header" style="background-color: ${node.bg}; border-top: 4px solid ${node.color}">
+                        <div class="header-title-wrapper">
+                            <div class="color-indicator" style="background-color: ${node.color}"></div>
+                            ${node.title}
+                        </div>
+                        <button class="detail-btn" data-id="${node.id}">解析</button>
+                    </div>
+                    <div class="node-content">
+                        <ul>${itemsHtml}</ul>
+                    </div>
+                `;
+                
+                const header = el.querySelector('.node-header');
+                header.addEventListener('mousedown', (e) => {
+                    if(e.target.tagName.toLowerCase() === 'button') return; 
+                    draggedNode = node;
+                    e.stopPropagation();
+                });
+
+                const btn = el.querySelector('.detail-btn');
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openModal(node);
+                });
+                
+                nodesLayer.appendChild(el);
+                nodeElements[node.id] = el;
+            });
+        }
+
+        function openModal(node) {
+            modalTitle.innerText = node.title;
+            const htmlContent = marked.parse(node.detail || "暂无详细解析。");
+            modalBody.innerHTML = htmlContent;
+            
+            modalOverlay.classList.add('active');
+
+            if (window.MathJax) {
+                MathJax.typesetPromise([modalBody]).catch((err) => console.log(err.message));
+            }
+        }
+
+        function closeModal() {
+            modalOverlay.classList.remove('active');
+        }
+        
+        modalOverlay.addEventListener('mousedown', (e) => {
+            if(e.target === modalOverlay) closeModal();
+        });
+
+        function initEdges() {
+            edgesData.forEach(edge => {
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('class', 'edge-path');
+                path.setAttribute('stroke', edge.color);
+                path.setAttribute('marker-end', `url(#${edge.marker})`);
+                svgLayer.appendChild(path);
+                edge.pathEl = path;
+            });
+            updateEdges();
+        }
+
+        function updateEdges() {
+            edgesData.forEach(edge => {
+                const sourceNode = nodesData.find(n => n.id === edge.source);
+                const targetNode = nodesData.find(n => n.id === edge.target);
+                const sourceEl = nodeElements[edge.source];
+                const targetEl = nodeElements[edge.target];
+                
+                if(!sourceEl || !targetEl || !edge.pathEl) return;
+
+                const sWidth = sourceEl.offsetWidth, sHeight = sourceEl.offsetHeight;
+                const tHeight = targetEl.offsetHeight;
+
+                let startX = sourceNode.x + sWidth, startY = sourceNode.y + sHeight / 2;
+                let endX = targetNode.x, endY = targetNode.y + tHeight / 2;
+
+                if (sourceNode.x > targetNode.x) {
+                    startX = sourceNode.x;
+                    endX = targetNode.x + targetEl.offsetWidth;
+                }
+
+                const controlPointOffset = Math.abs(endX - startX) * 0.45 + 40;
+                const cx1 = startX + (sourceNode.x < targetNode.x ? controlPointOffset : -controlPointOffset);
+                const cy1 = startY;
+                const cx2 = endX - (sourceNode.x < targetNode.x ? controlPointOffset : -controlPointOffset);
+                const cy2 = endY;
+
+                edge.pathEl.setAttribute('d', `M ${startX} ${startY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${endX} ${endY}`);
+            });
+        }
+
+        function updateTransform() {
+            canvasContainer.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+            document.getElementById('bg').style.backgroundPosition = `${translateX}px ${translateY}px`;
+            document.getElementById('bg').style.backgroundSize = `${24 * scale}px ${24 * scale}px`;
+        }
+
+        function centerCanvas() {
+            translateX = window.innerWidth / 2 - 650; 
+            translateY = window.innerHeight / 2 - 350;
+            scale = 0.85;
+            updateTransform();
+        }
+
+        document.body.addEventListener('mousedown', (e) => {
+            if (e.target.tagName.toLowerCase() === 'body' || e.target.id === 'bg' || e.target.id === 'svg-layer') {
+                isPanning = true;
+            }
+        });
+        
+        window.addEventListener('mousemove', (e) => {
+            if (draggedNode) {
+                draggedNode.x += e.movementX / scale;
+                draggedNode.y += e.movementY / scale;
+                nodeElements[draggedNode.id].style.left = draggedNode.x + 'px';
+                nodeElements[draggedNode.id].style.top = draggedNode.y + 'px';
+                updateEdges();
+            } else if (isPanning) {
+                translateX += e.movementX; translateY += e.movementY;
+                updateTransform();
+            }
+        });
+        
+        window.addEventListener('mouseup', () => { isPanning = false; draggedNode = null; });
+
+        document.body.addEventListener('wheel', (e) => {
+            if(modalOverlay.classList.contains('active')) return;
+            
+            e.preventDefault();
+            const zoomSensitivity = 0.001;
+            const delta = -e.deltaY * zoomSensitivity;
+            const newScale = Math.min(Math.max(0.15, scale + delta), 2.5);
+
+            const mouseX = e.clientX, mouseY = e.clientY;
+            translateX = mouseX - (mouseX - translateX) * (newScale / scale);
+            translateY = mouseY - (mouseY - translateY) * (newScale / scale);
+            scale = newScale;
+            updateTransform();
+        }, { passive: false });
+
+        window.onload = () => {
+            renderNodes();
+            requestAnimationFrame(() => {
+                initEdges();
+                centerCanvas();
+            });
+        };
+    </script>
+</body>
+</html>
